@@ -30,6 +30,7 @@ export default function NouvelArticle({ existingArticle = null }) {
   const [lastSaved, setLastSaved] = useState(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [searchProgress, setSearchProgress] = useState(0);
+  const [editingText, setEditingText] = useState("");
   const router = useRouter();
 
   const handleSubmitQuery = async (e) => {
@@ -428,6 +429,33 @@ export default function NouvelArticle({ existingArticle = null }) {
     }
   }, []);
 
+  const handleUpdateSourceInfo = async (sectionIndex, newSourceInfo) => {
+    try {
+      // Mettre à jour les sections avec la nouvelle information
+      const newSections = [...plan.sections];
+      newSections[sectionIndex] = {
+        ...newSections[sectionIndex],
+        source_information: newSourceInfo,
+      };
+
+      // Créer le nouveau plan
+      const newPlan = {
+        ...plan,
+        sections: newSections,
+      };
+
+      // Sauvegarder dans la base de données
+      await savePlan(newPlan);
+
+      // Mettre à jour l'interface
+      setPlan(newPlan);
+      setEditingIndex(null);
+    } catch (error) {
+      console.error("Erreur lors de la mise à jour:", error);
+      setError("Erreur lors de la mise à jour des informations");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50/50">
       {/* Barre latérale de navigation */}
@@ -701,16 +729,17 @@ export default function NouvelArticle({ existingArticle = null }) {
                         {editingIndex === `source-${index}` ? (
                           <div className="flex flex-col gap-2">
                             <textarea
-                              value={section.source_information}
-                              onChange={(e) =>
-                                handleUpdateSourceInfo(index, e.target.value)
-                              }
+                              value={editingText}
+                              onChange={(e) => setEditingText(e.target.value)}
                               className="w-full p-2 text-sm border border-gray-300 rounded min-h-[100px]"
                               autoFocus
                             />
                             <div className="flex justify-end">
                               <button
-                                onClick={() => setEditingIndex(null)}
+                                onClick={() => {
+                                  handleUpdateSourceInfo(index, editingText);
+                                  setEditingText("");
+                                }}
                                 className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
                               >
                                 Sauvegarder
@@ -724,9 +753,10 @@ export default function NouvelArticle({ existingArticle = null }) {
                             </div>
                             <div className="absolute top-0 right-0 flex gap-1">
                               <button
-                                onClick={() =>
-                                  setEditingIndex(`source-${index}`)
-                                }
+                                onClick={() => {
+                                  setEditingText(section.source_information);
+                                  setEditingIndex(`source-${index}`);
+                                }}
                                 className="p-1.5 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50"
                                 title="Modifier manuellement"
                               >
