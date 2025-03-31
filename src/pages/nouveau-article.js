@@ -697,8 +697,51 @@ export default function NouvelArticle({ existingArticle = null }) {
                   >
                     <h3 className="font-medium mb-2">{section.titre}</h3>
                     {section.source_information ? (
-                      <div className="text-sm text-gray-600">
-                        {section.source_information}
+                      <div className="relative">
+                        {editingIndex === `source-${index}` ? (
+                          <div className="flex flex-col gap-2">
+                            <textarea
+                              value={section.source_information}
+                              onChange={(e) =>
+                                handleUpdateSourceInfo(index, e.target.value)
+                              }
+                              className="w-full p-2 text-sm border border-gray-300 rounded min-h-[100px]"
+                              autoFocus
+                            />
+                            <div className="flex justify-end">
+                              <button
+                                onClick={() => setEditingIndex(null)}
+                                className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                              >
+                                Sauvegarder
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="text-sm text-gray-600 pr-16">
+                              {section.source_information}
+                            </div>
+                            <div className="absolute top-0 right-0 flex gap-1">
+                              <button
+                                onClick={() =>
+                                  setEditingIndex(`source-${index}`)
+                                }
+                                className="p-1.5 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50"
+                                title="Modifier manuellement"
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                onClick={() => handleSearchInfo(index)}
+                                className="p-1.5 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50"
+                                title="Relancer la recherche"
+                              >
+                                🔄
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     ) : (
                       <div className="text-sm text-yellow-600">
