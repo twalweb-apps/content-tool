@@ -1,0 +1,29 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Article {
+  id         Int      @id @default(autoincrement())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  query      String
+  h1         String
+  metaTitle  String   @map("meta_title")
+  metaDesc   String   @map("meta_desc")
+  sections   Section[]
+  status     String   @default("draft") // draft, writing, published
+}
+
+model Section {
+  id        Int      @id @default(autoincrement())
+  titre     String
+  niveau    String
+  ordre     Int
+  article   Article  @relation(fields: [articleId], references: [id])
+  articleId Int
+} 
