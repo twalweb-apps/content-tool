@@ -30,13 +30,16 @@ export default function Home() {
   useEffect(() => {
     const fetchArticles = async () => {
       try {
+        console.log("Fetching articles...");
         const response = await fetch("/api/articles");
+        console.log("Response status:", response.status);
         if (!response.ok) throw new Error("Erreur serveur");
         const data = await response.json();
+        console.log("Articles reçus:", data);
         setArticles(data);
       } catch (err) {
+        console.error("Erreur complète:", err);
         setError("Erreur lors du chargement des articles");
-        console.error(err);
       } finally {
         setIsLoading(false);
       }

@@ -3,14 +3,23 @@ import { useRouter } from "next/router";
 
 export default function NouvelArticle({ existingArticle = null }) {
   const [query, setQuery] = useState(existingArticle?.query || "");
-  const [step, setStep] = useState(existingArticle ? 2 : 1);
+  const [step, setStep] = useState(() => {
+    if (!existingArticle) return 1;
+    // Si l'article a des sections avec des informations, aller à l'étape 3
+    if (existingArticle.sections.some((s) => s.source_information)) return 3;
+    // Sinon, aller à l'étape 2 (plan)
+    return 2;
+  });
   const [plan, setPlan] = useState(
     existingArticle
       ? {
           h1: existingArticle.h1,
           meta_title: existingArticle.metaTitle,
           meta_desc: existingArticle.metaDesc,
-          sections: existingArticle.sections,
+          sections: existingArticle.sections.map((s) => ({
+            ...s,
+            source_information: s.source_information || null,
+          })),
         }
       : null
   );
@@ -20,6 +29,7 @@ export default function NouvelArticle({ existingArticle = null }) {
   const [articleId, setArticleId] = useState(existingArticle?.id || null);
   const [lastSaved, setLastSaved] = useState(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [searchProgress, setSearchProgress] = useState(0);
   const router = useRouter();
 
   const handleSubmitQuery = async (e) => {
@@ -127,8 +137,71 @@ export default function NouvelArticle({ existingArticle = null }) {
     setHasUnsavedChanges(true);
   };
 
+  const handleSearchInfo = async (sectionIndex) => {
+    const section = plan.sections[sectionIndex];
+    const parentSection =
+      section.niveau === "h3"
+        ? plan.sections.find((s, i) => i < sectionIndex && s.niveau === "h2")
+        : null;
+
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      // 1. Récupérer l'information de Perplexity
+      const response = await fetch("/api/search-section-info", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          h1: plan.h1,
+          section,
+          parentSection,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Erreur lors de la recherche");
+      }
+
+      const { source_information } = await response.json();
+      console.log("Received source_information:", source_information);
+
+      // 2. Mettre à jour la section avec la nouvelle information
+      const newSections = [...plan.sections];
+      newSections[sectionIndex] = {
+        ...section,
+        source_information,
+      };
+
+      // 3. Créer le nouveau plan
+      const newPlan = {
+        ...plan,
+        sections: newSections,
+      };
+
+      // 4. Sauvegarder dans la base de données
+      await savePlan(newPlan);
+      console.log("Section information saved successfully");
+
+      // 5. Mettre à jour l'interface seulement après la sauvegarde réussie
+      setPlan(newPlan);
+    } catch (error) {
+      console.error("Erreur complète:", error);
+      setError("Erreur lors de la recherche d'informations");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const validatePlan = () => {
-    if (!plan) return false;
+    console.log("Validating plan:", plan);
+
+    if (!plan) {
+      console.log("Plan is null");
+      return false;
+    }
 
     // Vérifier que les champs obligatoires sont remplis
     if (
@@ -136,6 +209,11 @@ export default function NouvelArticle({ existingArticle = null }) {
       !plan.meta_title?.trim() ||
       !plan.meta_desc?.trim()
     ) {
+      console.log("Missing metadata:", {
+        h1: plan.h1?.trim(),
+        meta_title: plan.meta_title?.trim(),
+        meta_desc: plan.meta_desc?.trim(),
+      });
       setError(
         "Les métadonnées (H1, meta title et meta description) sont obligatoires"
       );
@@ -144,51 +222,57 @@ export default function NouvelArticle({ existingArticle = null }) {
 
     // Vérifier qu'il y a au moins une section
     if (!plan.sections?.length) {
+      console.log("No sections found");
       setError("Le plan doit contenir au moins une section");
       return false;
     }
 
     // Vérifier que les H3 sont sous des H2
-    let lastWasH2 = false;
+    let hasH2Before = false;
     for (let i = 0; i < plan.sections.length; i++) {
       const section = plan.sections[i];
-      if (section.niveau === "h3" && !lastWasH2) {
+      console.log(`Checking section ${i}:`, section);
+
+      if (section.niveau === "h2") {
+        hasH2Before = true;
+      } else if (section.niveau === "h3" && !hasH2Before) {
+        console.log("H3 without any preceding H2");
         setError("Une sous-section (H3) doit être précédée d'une section (H2)");
         return false;
       }
+
       if (!section.titre?.trim()) {
+        console.log("Empty section title");
         setError("Toutes les sections doivent avoir un titre");
         return false;
       }
-      lastWasH2 = section.niveau === "h2";
     }
 
+    console.log("Plan validation successful");
     return true;
   };
 
   const savePlan = useCallback(
     async (planToSave) => {
       try {
-        const response = await fetch(
-          articleId ? `/api/save-draft?id=${articleId}` : "/api/save-plan",
-          {
-            method: articleId ? "PUT" : "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              query,
-              h1: planToSave.h1,
-              meta_title: planToSave.meta_title,
-              meta_desc: planToSave.meta_desc,
-              sections: planToSave.sections,
-            }),
-          }
-        );
+        console.log("Saving plan:", planToSave); // Pour déboguer
+        const response = await fetch("/api/save-plan", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            id: articleId,
+            ...planToSave,
+          }),
+        });
 
-        if (!response.ok) throw new Error("Erreur de sauvegarde");
+        if (!response.ok) {
+          throw new Error("Erreur lors de la sauvegarde");
+        }
 
         const savedArticle = await response.json();
+        console.log("Plan saved:", savedArticle); // Pour déboguer
         setArticleId(savedArticle.id);
         setLastSaved(new Date());
         setHasUnsavedChanges(false);
@@ -197,7 +281,7 @@ export default function NouvelArticle({ existingArticle = null }) {
         setError("Erreur lors de la sauvegarde. Veuillez réessayer.");
       }
     },
-    [articleId, query]
+    [articleId]
   );
 
   useEffect(() => {
@@ -210,10 +294,71 @@ export default function NouvelArticle({ existingArticle = null }) {
     }
   }, [plan, hasUnsavedChanges, savePlan]);
 
-  const handleNextStep = () => {
+  const handleNextStep = async () => {
+    console.log("handleNextStep called");
     setError(null);
-    if (validatePlan()) {
+
+    if (!validatePlan()) {
+      console.log("Plan validation failed");
+      return;
+    }
+
+    try {
+      console.log("Starting search for sections");
+      setIsLoading(true);
+      setSearchProgress(0);
+
+      const newSections = [...plan.sections];
+      for (let i = 0; i < newSections.length; i++) {
+        console.log(`Processing section ${i + 1}/${newSections.length}`);
+        const section = newSections[i];
+        const parentSection =
+          section.niveau === "h3"
+            ? plan.sections.find((s, idx) => idx < i && s.niveau === "h2")
+            : null;
+
+        const response = await fetch("/api/search-section-info", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            h1: plan.h1,
+            section,
+            parentSection,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Erreur lors de la recherche");
+        }
+
+        const { source_information } = await response.json();
+        newSections[i] = {
+          ...section,
+          source_information,
+        };
+
+        // Sauvegarder immédiatement après chaque section
+        const updatedPlan = {
+          ...plan,
+          sections: newSections,
+        };
+        await savePlan(updatedPlan);
+        console.log(`Section ${i + 1} saved with information`);
+
+        // Mettre à jour l'interface
+        setPlan(updatedPlan);
+        setSearchProgress(Math.round(((i + 1) / newSections.length) * 100));
+      }
+
       setStep(3);
+    } catch (error) {
+      console.error("Error in handleNextStep:", error);
+      setError(`Erreur lors de la recherche d'informations: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+      setSearchProgress(0);
     }
   };
 
@@ -274,6 +419,15 @@ export default function NouvelArticle({ existingArticle = null }) {
     };
   }, [hasUnsavedChanges, router]);
 
+  // Ajouter un useEffect pour déboguer
+  useEffect(() => {
+    if (existingArticle) {
+      console.log("Article existant:", existingArticle);
+      console.log("Step initial:", step);
+      console.log("Plan initial:", plan);
+    }
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-50/50">
       {/* Barre latérale de navigation */}
@@ -329,7 +483,7 @@ export default function NouvelArticle({ existingArticle = null }) {
 
               {error && <div className="text-sm text-red-600">{error}</div>}
             </div>
-          ) : (
+          ) : step === 2 ? (
             /* Étape 2: Plan de l'article */
             <div className="space-y-6">
               <div className="flex justify-between items-center mb-6">
@@ -473,8 +627,19 @@ export default function NouvelArticle({ existingArticle = null }) {
                             >
                               ×
                             </button>
+                            <button
+                              onClick={() => handleSearchInfo(index)}
+                              className="px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 rounded"
+                            >
+                              🔍
+                            </button>
                           </div>
                         </div>
+                        {section.source_information && (
+                          <div className="mt-2 text-sm text-gray-600 bg-gray-50 p-2 rounded">
+                            {section.source_information}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -486,15 +651,78 @@ export default function NouvelArticle({ existingArticle = null }) {
                         Dernière sauvegarde : {lastSaved.toLocaleTimeString()}
                       </div>
                     )}
-                    <button
-                      onClick={handleNextStep}
-                      className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded hover:bg-blue-700"
-                    >
-                      Suivant →
-                    </button>
+                    <div className="flex items-center gap-4">
+                      {isLoading && (
+                        <div className="flex items-center gap-2">
+                          <div className="text-sm text-gray-600">
+                            Recherche d'informations... {searchProgress}%
+                          </div>
+                          <div className="w-32 h-2 bg-gray-200 rounded-full">
+                            <div
+                              className="h-full bg-blue-600 rounded-full transition-all duration-300"
+                              style={{ width: `${searchProgress}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                      <button
+                        onClick={handleNextStep}
+                        disabled={isLoading}
+                        className={`px-4 py-2 text-sm font-medium rounded ${
+                          isLoading
+                            ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                            : "bg-blue-600 text-white hover:bg-blue-700"
+                        }`}
+                      >
+                        {isLoading ? "Recherche en cours..." : "Suivant →"}
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
+            </div>
+          ) : (
+            /* Étape 3: Résumé et confirmation */
+            <div className="space-y-6">
+              <h2 className="text-lg font-medium text-gray-900">
+                Informations collectées
+              </h2>
+              <div className="space-y-4">
+                {plan.sections.map((section, index) => (
+                  <div
+                    key={index}
+                    className={`p-4 bg-white rounded-lg shadow ${
+                      section.niveau === "h3" ? "ml-6" : ""
+                    }`}
+                  >
+                    <h3 className="font-medium mb-2">{section.titre}</h3>
+                    {section.source_information ? (
+                      <div className="text-sm text-gray-600">
+                        {section.source_information}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-yellow-600">
+                        Aucune information trouvée
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex justify-between pt-4 border-t">
+                <button
+                  onClick={() => setStep(2)}
+                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800"
+                >
+                  ← Retour au plan
+                </button>
+                <button
+                  onClick={() => router.push(`/article/${articleId}`)}
+                  className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  Commencer la rédaction →
+                </button>
+              </div>
             </div>
           )}
         </div>

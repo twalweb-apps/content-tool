@@ -20,10 +20,11 @@ model Article {
 }
 
 model Section {
-  id        Int      @id @default(autoincrement())
-  titre     String
-  niveau    String
-  ordre     Int
-  article   Article  @relation(fields: [articleId], references: [id])
-  articleId Int
+  id                 String   @id @default(cuid())
+  titre             String
+  niveau            String
+  ordre             Int      @default(autoincrement())
+  source_information String?
+  articleId         Int
+  article           Article  @relation(fields: [articleId], references: [id])
 } 

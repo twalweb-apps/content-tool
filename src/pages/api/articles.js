@@ -1,4 +1,6 @@
-import prisma from "../../lib/prisma";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -9,19 +11,23 @@ export default async function handler(req, res) {
     const articles = await prisma.article.findMany({
       include: {
         sections: {
-          orderBy: {
-            ordre: "asc",
+          select: {
+            id: true,
+            titre: true,
+            niveau: true,
+            source_information: true,
           },
         },
       },
       orderBy: {
-        createdAt: "desc",
+        updatedAt: "desc",
       },
     });
 
-    return res.status(200).json(articles);
+    console.log("Articles trouvés:", articles);
+    res.status(200).json(articles);
   } catch (error) {
-    console.error("Erreur lors de la récupération des articles:", error);
-    return res.status(500).json({ message: "Erreur serveur" });
+    console.error("Error fetching articles:", error);
+    res.status(500).json({ message: "Error fetching articles" });
   }
 }

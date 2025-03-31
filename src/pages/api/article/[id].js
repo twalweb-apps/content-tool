@@ -1,4 +1,6 @@
-import prisma from "../../../lib/prisma";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -9,23 +11,25 @@ export default async function handler(req, res) {
 
   try {
     const article = await prisma.article.findUnique({
-      where: { id: parseInt(id) },
+      where: {
+        id: parseInt(id),
+      },
       include: {
         sections: {
           orderBy: {
-            ordre: "asc",
+            id: "asc",
           },
         },
       },
     });
 
     if (!article) {
-      return res.status(404).json({ message: "Article non trouvé" });
+      return res.status(404).json({ message: "Article not found" });
     }
 
-    return res.status(200).json(article);
+    res.status(200).json(article);
   } catch (error) {
-    console.error("Erreur lors de la récupération de l'article:", error);
-    return res.status(500).json({ message: "Erreur serveur" });
+    console.error("Error fetching article:", error);
+    res.status(500).json({ message: "Error fetching article" });
   }
 }
